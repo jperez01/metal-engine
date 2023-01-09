@@ -28,5 +28,5 @@ target_include_directories(metal_engine PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}"
     "${CMAKE_CURRENT_SOURCE_DIR}/third-party")
 
 target_link_libraries(metal_engine
-    METAL_CPP imgui SDL2::SDL2 ${assimp} stb glm imgui_file_dialog
+    METAL_CPP imgui SDL2::SDL2 ${assimp} stb glm ImGuiFileDialog
 )

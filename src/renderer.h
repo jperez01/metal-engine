@@ -116,6 +116,9 @@ private:
     MTL::Texture* m_cubeMapTexture;
     MTL::Buffer* m_cubeMapBuffer;
     MTL::RenderPipelineState* m_cubemapState;
+    
+    Gizmo m_gizmo;
+    MTL::RenderPipelineState* m_gizmoState;
 };
 
 void asyncImportModel(std::string& path, std::vector<Model>& importedModels, MTL::Device* device, MTL::Function* fragmentFn);

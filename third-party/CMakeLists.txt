@@ -1,5 +1,5 @@
 add_library(imgui STATIC)
-add_library(imgui_file_dialog STATIC)
+add_library(ImGuiFileDialog STATIC)
 
 target_include_directories(imgui PUBLIC imgui)
 
@@ -17,13 +17,13 @@ target_sources(imgui PRIVATE
     imgui/imgui_impl_sdl.cpp)
     
 
-target_include_directories(imgui_file_dialog PUBLIC imgui_file_dialog)
+target_include_directories(ImGuiFileDialog PUBLIC ImGuiFileDialog)
 
-target_sources(imgui_file_dialog PRIVATE
+target_sources(ImGuiFileDialog PRIVATE
     ImGuiFileDialog/ImGuiFileDialog.h
     ImGuiFileDialog/ImGuiFileDialog.cpp)
     
-target_link_libraries(imgui_file_dialog PUBLIC imgui)
+target_link_libraries(ImGuiFileDialog PUBLIC imgui)
 
 file(GLOB ASSIMP_SOURCES
     assimp/*.h

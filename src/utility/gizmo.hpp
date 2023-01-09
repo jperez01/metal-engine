@@ -6,6 +6,7 @@
 //
 #pragma once
 
+#include <Metal/Metal.hpp>
 #include <stdio.h>
 #include <glm/glm/glm.hpp>
 #include <vector>
@@ -40,14 +41,13 @@ class Gizmo {
 public:
     Gizmo();
     void manipulateGizmo(Ray& line);
-    void findIntersection(Ray& line);
-    
+    bool findIntersection(Ray& line);
     void draw(MTL::RenderCommandEncoder* encoder);
     
 private:
     std::vector<Ray> m_axes;
     glm::mat4 m_transformation;
-    float m_treshold;
+    float m_threshold;
     glm::vec3 m_startPosition;
     ChosenAxis m_currentAxis;
 };

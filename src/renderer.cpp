@@ -11,7 +11,7 @@
 #include "imgui_tables.cpp"
 #include "imgui_impl_sdl.h"
 
-#include <ImGuiFileDialog/ImGuiFileDialog.h>
+#include "ImGuiFileDialog/ImGuiFileDialog.h"
 
 #include "renderer.h"
 #include <SDL2/SDL.h>
@@ -67,6 +67,7 @@ Renderer::Renderer() :
     initWindow();
     m_commandQueue = m_device->newCommandQueue();
     m_camera = Camera(glm::vec3(0.0f, 0.0f, 3.0f));
+        m_gizmo = Gizmo();
     
     buildShaders();
     buildComputePipeline();
@@ -232,6 +233,9 @@ void Renderer::buildShaders() {
 
     MTL::Function* vertexFn = library->newFunction(NS::String::string("vertexMain", encoding));
     MTL::Function* fragmentFn = library->newFunction(NS::String::string("fragmentMain", encoding));
+    
+    MTL::Function* vertexGizmoFn = library->newFunction(NS::String::string("gizmoVMain", encoding));
+    MTL::Function* fragmentGizmoFn = library->newFunction(NS::String::string("gizmoFMain", encoding));
 
     MTL::RenderPipelineDescriptor* descriptor = MTL::RenderPipelineDescriptor::alloc()->init();
     descriptor->setVertexFunction(vertexFn);
@@ -241,6 +245,18 @@ void Renderer::buildShaders() {
 
     m_state = m_device->newRenderPipelineState(descriptor, &error);
     if (!m_state) {
+        printf("%s", error->localizedDescription()->utf8String());
+        assert(false);
+    }
+    
+    MTL::RenderPipelineDescriptor* gizmoDescriptor = MTL::RenderPipelineDescriptor::alloc()->init();
+    gizmoDescriptor->setVertexFunction(vertexGizmoFn);
+    gizmoDescriptor->setFragmentFunction(fragmentGizmoFn);
+    gizmoDescriptor->colorAttachments()->object(0)->setPixelFormat(MTL::PixelFormat::PixelFormatBGRA8Unorm_sRGB);
+    gizmoDescriptor->setDepthAttachmentPixelFormat(MTL::PixelFormat::PixelFormatDepth16Unorm);
+    
+    m_gizmoState = m_device->newRenderPipelineState(gizmoDescriptor, &error);
+    if (!m_gizmoState) {
         printf("%s", error->localizedDescription()->utf8String());
         assert(false);
     }
@@ -754,6 +770,11 @@ void Renderer::drawModelOnly(CA::MetalDrawable* drawable) {
     for (Model& model : m_importedModels) {
         model.draw(encoder);
     }
+    
+    encoder->setRenderPipelineState(m_gizmoState);
+    encoder->setVertexBuffer(cameraDataBuffer, 0, 2);
+    
+    m_gizmo.draw(encoder);
     
     // Rendering cubemap
     encoder->setRenderPipelineState(m_cubemapState);

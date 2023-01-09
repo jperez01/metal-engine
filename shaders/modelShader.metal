@@ -129,3 +129,37 @@ float4 fragment fragmentMain(v2f in [[stage_in]], device TextureEndpoints& endpo
     
     return float4(total, 1.0);
 }
+
+struct GizmoData {
+    float3 position;
+};
+
+struct v2fGizmo {
+    float4 position [[position]];
+    float3 color;
+};
+
+struct GizmoTransformation {
+    float4x4 transformation;
+};
+
+v2fGizmo vertex gizmoVMain(device const GizmoData* gizmoData [[buffer(0)]],
+                      device const GizmoTransformation& gizmoTrans [[buffer(1)]],
+                     device const CameraData& cameraData [[buffer(2)]],
+                     uint vertexId [[vertex_id]]) {
+    v2fGizmo o;
+    
+    const device GizmoData& gd = gizmoData[vertexId];
+    float4 pos = float4(gd.position, 1.0);
+    o.position = cameraData.perspective * cameraData.view * gizmoTrans.transformation * pos;
+    
+    if (vertexId < 2) o.color = float3(0.0, 1.0, 0.0);
+    else if (vertexId < 4) o.color = float3(1.0, 0.0, 0.0);
+    else o.color = float3(0.0, 0.0, 1.0);
+    
+    return o;
+}
+
+float4 fragment gizmoFMain(v2fGizmo in [[stage_in]]) {
+    return float4(in.color, 1.0);
+}
