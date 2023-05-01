@@ -10,6 +10,8 @@
 #include "utility/camera.hpp"
 #include "utility/gizmo.hpp"
 
+#include "layers/imguiLayer.hpp"
+
 static constexpr size_t kInstanceRows = 10;
 static constexpr size_t kInstanceColumns = 10;
 static constexpr size_t kInstanceDepth = 10;
@@ -54,7 +56,6 @@ public:
     void buildTextures();
     void buildFrameData();
     
-    void importModel();
     void asyncImportModel(std::string path);
 
     void createLights();
@@ -119,6 +120,6 @@ private:
     
     Gizmo m_gizmo;
     MTL::RenderPipelineState* m_gizmoState;
+    
+    ImGuiLayer m_imguiLayer;
 };
-
-void asyncImportModel(std::string& path, std::vector<Model>& importedModels, MTL::Device* device, MTL::Function* fragmentFn);

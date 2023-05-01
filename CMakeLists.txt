@@ -16,6 +16,8 @@ file(GLOB SOURCES
     src/utility/*.h
     src/utility/*.hpp
     src/utility/*.cpp
+    src/layers/*.hpp
+    src/layers/*.cpp
 )
 
 add_executable(metal_engine

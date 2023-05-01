@@ -6,12 +6,6 @@
 #include "utility/fileIO.h"
 #include "utility/importUtils.hpp"
 
-#include "imgui.h"
-#include "imgui_impl_metal.h"
-#include "imgui_tables.cpp"
-#include "imgui_impl_sdl.h"
-
-#include "ImGuiFileDialog/ImGuiFileDialog.h"
 
 #include "renderer.h"
 #include <SDL2/SDL.h>
@@ -68,13 +62,12 @@ Renderer::Renderer() :
     m_commandQueue = m_device->newCommandQueue();
     m_camera = Camera(glm::vec3(0.0f, 0.0f, 3.0f));
         m_gizmo = Gizmo();
-    
+        m_imguiLayer = ImGuiLayer();
     buildShaders();
     buildComputePipeline();
     buildDepthStencilStates();
     buildTextures();
     buildBuffers();
-    importModel();
         
     createLights();
     buildCubemap();
@@ -103,9 +96,7 @@ Renderer::~Renderer() {
     m_commandQueue->release();
     m_device->release();
     
-    ImGui_ImplMetal_Shutdown();
-    ImGui_ImplSDL2_Shutdown();
-    ImGui::DestroyContext();
+    m_imguiLayer.onDetach();
     
     SDL_DestroyRenderer(m_renderer);
     SDL_DestroyWindow(m_window);
@@ -113,12 +104,6 @@ Renderer::~Renderer() {
 }
 
 void Renderer::initWindow() {
-    IMGUI_CHECKVERSION();
-    ImGui::CreateContext();
-    ImGuiIO& io = ImGui::GetIO(); (void)io;
-    
-    ImGui::StyleColorsDark();
-    
     if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_TIMER | SDL_INIT_GAMECONTROLLER) != 0) {
         printf("Error: %s \n", SDL_GetError());
     }
@@ -143,8 +128,7 @@ void Renderer::initWindow() {
     m_device = device;
     m_layer = layer->retain();
     
-    ImGui_ImplMetal_Init(m_device);
-    ImGui_ImplSDL2_InitForMetal(m_window);
+    m_imguiLayer.onAttach(device, window);
 }
 
 void Renderer::run() {
@@ -198,7 +182,6 @@ void Renderer::run() {
         
         int width = 0, height = 0;
         SDL_GetRendererOutputSize(m_renderer, &width, &height);
-        
         m_layer->setDrawableSize(CGSizeMake(width, height));
         
         auto layer = m_layer->nextDrawable();
@@ -518,152 +501,7 @@ void Renderer::generateMandelbrotTexture(MTL::CommandBuffer* cmd) {
 
 }
 
-void Renderer::importModel() {
-
-}
-
 void Renderer::draw(CA::MetalDrawable* drawable) {
-    using simd::float4x4;
-    using simd::float4;
-    using simd::float3;
-
-    NS::AutoreleasePool* pool = NS::AutoreleasePool::alloc()->init();
-
-    m_frame = (m_frame+1) % Renderer::kMaxFramesInFlight;
-    MTL::Buffer* instanceDataBuffer = m_instanceDataBuffer[m_frame];
-
-    MTL::CommandBuffer* cmd = m_commandQueue->commandBuffer();
-
-    dispatch_semaphore_wait(m_semaphore, DISPATCH_TIME_FOREVER);
-    Renderer* renderer = this;
-    cmd->addCompletedHandler([renderer](MTL::CommandBuffer* cmd) {
-        dispatch_semaphore_signal(renderer->m_semaphore);
-    });
-
-    m_angle += 0.002f;
-
-    const float scl = 0.5f;
-    shader_types::InstanceData* instanceData = 
-        reinterpret_cast<shader_types::InstanceData*>(instanceDataBuffer->contents());
-
-    float3 objectPosition = { 0.0f, 0.0f, -5.0f };
-
-    float4x4 rt = math::makeTranslate(objectPosition);
-    float4x4 rr1 = math::makeYRotate(-m_angle);
-    float4x4 rr0 = math::makeXRotate(m_angle * 0.5);
-
-    float3 inverseVector = { -objectPosition.x, -objectPosition.y, -objectPosition.z};
-    float4x4 rtInverse = math::makeTranslate(inverseVector);
-    float4x4 fullObjectRotate = rt * rr1 * rr0 * rtInverse;
-
-    size_t ix = 0, iy = 0, iz = 0;
-    for (size_t i = 0; i < kNumInstances; i++) {
-        if (ix == kInstanceRows) {
-            ix = 0;
-            iy += 1;
-        }
-        if (iy == kInstanceRows) {
-            iy = 0;
-            iz += 1;
-        }
-
-        float4x4 scale = math::makeScale((float3){scl, scl, scl});
-        float4x4 zrot = math::makeZRotate(m_angle * sinf((float)ix));
-        float4x4 yrot = math::makeYRotate(m_angle * cosf((float)iy));
-
-        float x = ((float)ix - (float)kInstanceRows/2.0f) * (2.0f * scl) + scl;
-        float y = ((float)iy - (float)kInstanceRows/2.0f) * (2.0f * scl) + scl;
-        float z = ((float)iz - (float)kInstanceRows/2.0f) * (2.0f * scl) + scl;
-        float3 offsets = (float3){x, y, z};
-        float4x4 translate = math::makeTranslate(math::add(objectPosition, offsets));
-
-        instanceData[i].instanceTransform = fullObjectRotate * translate * yrot * zrot * scale;
-        instanceData[i].instanceNormalTransform = math::discardTranslation(instanceData[i].instanceTransform);
-
-        float divNumInstances = i / (float)kNumInstances;
-        float r = divNumInstances,
-            g = 1.0f - r,
-            b = sinf(M_PI * 2.0f * divNumInstances);
-        instanceData[i].instanceColor = (float4){r, g, b, 1.0f};
-
-        ix += 1;
-    }
-    instanceDataBuffer->didModifyRange(NS::Range::Make(0, instanceDataBuffer->length()));
-
-    // Setup Camera Data
-    MTL::Buffer* cameraDataBuffer = m_cameraDataBuffer[m_frame];
-    shader_types::CameraData* cameraData = reinterpret_cast<shader_types::CameraData*>(cameraDataBuffer->contents());
-    cameraData->view = m_camera.getViewMatrix();
-    cameraData->perspective = m_camera.getPerspectiveMatrix(1280.0 / 720.0);
-    cameraData->position = m_camera.getPosition();
-    cameraDataBuffer->didModifyRange(NS::Range::Make(0, sizeof(shader_types::CameraData)));
-    
-    generateMandelbrotTexture(cmd);
-
-    // Start actual rendering
-    MTL::RenderPassDescriptor* descriptor = MTL::RenderPassDescriptor::renderPassDescriptor();
-    
-    auto color_attachment = descriptor->colorAttachments()->object(0);
-    color_attachment->setClearColor(MTL::ClearColor(1, 1, 1, 0));
-    color_attachment->setTexture(drawable->texture());
-    color_attachment->setLoadAction(MTL::LoadAction::LoadActionClear);
-    color_attachment->setStoreAction(MTL::StoreAction::StoreActionStore);
-    
-    if (m_depthTexture == nullptr) {
-        MTL::TextureDescriptor* textureDescriptor = MTL::TextureDescriptor::alloc()->init();
-        textureDescriptor->setWidth(2560);
-        textureDescriptor->setHeight(1440);
-        textureDescriptor->setPixelFormat(MTL::PixelFormatDepth16Unorm);
-        textureDescriptor->setTextureType(MTL::TextureType2D);
-        textureDescriptor->setStorageMode(MTL::StorageModeManaged);
-        textureDescriptor->setUsage(MTL::ResourceUsageSample | MTL::ResourceUsageRead | MTL::ResourceUsageWrite);
-        
-        MTL::Texture* texture = m_device->newTexture(textureDescriptor);
-        m_depthTexture = texture->retain();
-    }
-    
-    descriptor->depthAttachment()->setTexture(m_depthTexture);
-
-    
-    MTL::RenderCommandEncoder* encoder = cmd->renderCommandEncoder(descriptor);
-    
-    encoder->setViewport(MTL::Viewport {
-        0.0f, 0.0f,
-        2560, 1440,
-        0.0f, 1.0f
-    });
-    
-    encoder->setDepthStencilState(m_stencilState);
-    encoder->setRenderPipelineState(m_state);
-
-    encoder->setVertexBuffer(m_vertexBuffer, 0, 0);
-    encoder->setVertexBuffer(instanceDataBuffer, 0, 1);
-    encoder->setVertexBuffer(cameraDataBuffer, 0, 2);
-    
-    encoder->setFragmentTexture(m_texture, 0);
-
-    encoder->setCullMode(MTL::CullModeBack);
-    encoder->setFrontFacingWinding(MTL::Winding::WindingCounterClockwise);
-
-    encoder->drawIndexedPrimitives( MTL::PrimitiveType::PrimitiveTypeTriangle,
-        6 * 6, MTL::IndexType::IndexTypeUInt16,
-        m_indexBuffer,
-        0, kNumInstances);
-    
-    ImGui_ImplMetal_NewFrame(descriptor);
-    ImGui_ImplSDL2_NewFrame();
-    ImGui::NewFrame();
-    
-    ImGui::ShowDemoWindow();
-    
-    ImGui::Render();
-    ImGui_ImplMetal_RenderDrawData(ImGui::GetDrawData(), cmd, encoder);
-
-    encoder->endEncoding();
-    cmd->presentDrawable(drawable);
-    cmd->commit();
-
-    pool->release();
 }
 
 void Renderer::drawModelOnly(CA::MetalDrawable* drawable) {
@@ -743,16 +581,14 @@ void Renderer::drawModelOnly(CA::MetalDrawable* drawable) {
         
         textureDescriptor->release();
     }
+    MTL::RenderPassDepthAttachmentDescriptor* depthDescriptor = MTL::RenderPassDepthAttachmentDescriptor::alloc()->init();
+    depthDescriptor->setTexture(m_depthTexture);
+    depthDescriptor->setLoadAction(MTL::LoadActionClear);
+    depthDescriptor->setStoreAction(MTL::StoreActionStore);
     
-    descriptor->depthAttachment()->setTexture(m_depthTexture);
+    descriptor->setDepthAttachment(depthDescriptor);
     
     MTL::RenderCommandEncoder* encoder = cmd->renderCommandEncoder(descriptor);
-    
-    encoder->setViewport(MTL::Viewport {
-        0.0f, 0.0f,
-        2560, 1440,
-        0.0f, 1.0f
-    });
     
     // Rendering model
     encoder->setDepthStencilState(m_stencilState);
@@ -786,9 +622,7 @@ void Renderer::drawModelOnly(CA::MetalDrawable* drawable) {
     encoder->drawPrimitives(MTL::PrimitiveTypeTriangle, NS::UInteger(0), 36);
     
     // Rendering ImGui
-    ImGui_ImplMetal_NewFrame(descriptor);
-    ImGui_ImplSDL2_NewFrame();
-    ImGui::NewFrame();
+    m_imguiLayer.begin(descriptor);
     
     ImGui::Begin("Info");
     size_t numLights = m_dirLights.size();
@@ -845,9 +679,9 @@ void Renderer::drawModelOnly(CA::MetalDrawable* drawable) {
     }
     
     ImGui::End();
+    ImGui::ShowDemoWindow();
     
-    ImGui::Render();
-    ImGui_ImplMetal_RenderDrawData(ImGui::GetDrawData(), cmd, encoder);
+    m_imguiLayer.end(cmd, encoder);
     
     encoder->endEncoding();
     cmd->presentDrawable(drawable);
@@ -861,11 +695,4 @@ void Renderer::asyncImportModel(std::string path) {
     importedModel.setupMeshBuffers(m_device, m_fragmentFunction);
     
     m_importedModels.push_back(importedModel);
-}
-
-void asyncImportModel(std::string& path, std::vector<Model>& importedModels, MTL::Device* device, MTL::Function* fragmentFn) {
-    Model importedModel(path, device);
-    importedModel.setupMeshBuffers(device, fragmentFn);
-    
-    importedModels.push_back(importedModel);
 }
